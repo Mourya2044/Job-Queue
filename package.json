@@ -1,0 +1,21 @@
+{
+  "name": "job-queue",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "api-dev": "nodemon src/index.js",
+    "worker-dev": "nodemon src/jobs/worker.js",
+    "api": "node src/index.js",
+    "worker": "node src/jobs/worker.js"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.16.3",
+    "ws": "^8.18.3"
+  }
+}

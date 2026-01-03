@@ -14,33 +14,44 @@ export const createJob = async (type, payload) => {
 }
 
 export const claimJob = async () => {
-    try {
-        const result = await pool.query(`
-                UPDATE jobs
-                SET
-                    status = 'RUNNING',
-                    started_at = NOW()
-                WHERE id = (
-                    SELECT id
-                    FROM jobs
-                    WHERE status = 'PENDING'
-                    ORDER BY created_at
-                    LIMIT 1
-                )  
-                RETURNING *
-            `)
-        const job = result.rows[0];
-        return job || null;
-    } catch (error) {
-        console.error(error);
-    }
-}
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await client.query(`
+      UPDATE jobs
+      SET
+        status = 'RUNNING',
+        started_at = NOW()
+      WHERE id = (
+        SELECT id
+        FROM jobs
+        WHERE status = 'PENDING'
+        ORDER BY created_at
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *;
+    `);
+
+    await client.query("COMMIT");
+    return result.rows[0] || null;
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("claimJob error:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
 
 export const markJobSuccess = async (jobId) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const result = await pool.query(`
+        const result = await client.query(`
                 UPDATE jobs
                 SET
                     status = 'SUCCESSFUL',
@@ -68,7 +79,7 @@ export const markJobFailed = async (jobId, errormsg) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const result = await pool.query(`
+        const result = await client.query(`
                 UPDATE jobs
                 SET
                     attempts = attempts + 1,

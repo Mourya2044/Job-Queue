@@ -1,6 +1,6 @@
 # Job Queue System
 
-**PostgreSQL · Node.js · Workers · WebSockets**
+**PostgreSQL · Node.js · Workers · WebSockets · Scheduler**
 
 A production‑style **job queue system** built with Node.js and PostgreSQL, supporting concurrent workers, failure recovery, and real‑time job status updates using **PostgreSQL `LISTEN / NOTIFY` + WebSockets**.
 
@@ -13,7 +13,7 @@ This project emphasizes **correctness under concurrency**, **process isolation**
 * Persistent job queue backed by PostgreSQL
 * Safe concurrent job claiming (`FOR UPDATE SKIP LOCKED`)
 * Multiple worker processes supported
-* Automatic recovery of abandoned jobs
+* Automatic recovery of abandoned jobs via a standalone scheduler
 * Real‑time job status updates via WebSockets
 * Event signaling using PostgreSQL `LISTEN / NOTIFY`
 * No polling, no shared memory, no race conditions
@@ -45,6 +45,10 @@ flowchart LR
         WN["Worker N"]
     end
 
+    subgraph SCHEDULER["Scheduler Process"]
+        SCH["Recovery Scheduler"]
+    end
+
     Client -->|HTTP| HTTP
     WS -->|events| Client
 
@@ -57,6 +61,8 @@ flowchart LR
     W1 -->|UPDATE status| JOBS
     W2 -->|UPDATE status| JOBS
     WN -->|UPDATE status| JOBS
+
+    SCH -->|recover / fail abandoned jobs| JOBS
 
     JOBS -->|NOTIFY job_events| NOTIFY
     NOTIFY --> LISTENER
@@ -72,6 +78,7 @@ flowchart LR
 3. **Workers** update job state transactionally and emit `NOTIFY` signals.
 4. **API server** listens for database events, re-reads state, and broadcasts updates.
 5. **WebSockets** deliver real-time job status to subscribed clients.
+6. **Recovery Scheduler** periodically polls for abandoned running jobs and either re-queues them (reverting status to `PENDING`) or marks them as `FAILED`.
 
 ---
 

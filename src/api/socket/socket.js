@@ -1,6 +1,8 @@
-import { WebSocketServer } from "ws";
+import "dotenv/config";
+import { WebSocket, WebSocketServer } from "ws";
 
-const wss = new WebSocketServer({ port: 8080 });
+const wsPort = Number(process.env.WS_PORT ?? 8080);
+const wss = new WebSocketServer({ port: wsPort });
 
 // jobId => set(ws connections)
 const subscribers = new Map();
@@ -11,6 +13,7 @@ wss.on("connection", (ws) => {
     ws.on("message", (message) => {
         let data;
         try {
+            // console.log("Received message:", message.toString());
             data = JSON.parse(message.toString());
         } catch (error) {
             console.error("Invalid JSON message received:", message);
@@ -79,7 +82,7 @@ export const reportJobStatus = (job) => {
         }
 
         for (const ws of sockets) {
-            if (ws.readyState === ws.OPEN) {
+            if (ws.readyState === WebSocket.OPEN) {
                 ws.send(payload);
             }
         }
@@ -88,4 +91,4 @@ export const reportJobStatus = (job) => {
     }
 }
 
-console.log("WebSocket server running on ws://localhost:8080");
+console.log(`WebSocket server running on ws://localhost:${wsPort}`);

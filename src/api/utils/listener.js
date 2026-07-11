@@ -1,6 +1,6 @@
 import { reportJobStatus } from "../socket/socket.js";
-import { getJobById } from "../jobs/jobRepo.js";
-import pool from "./db.js";
+import { getJobById } from "../services/job.services.js";
+import pool from "../../db/db.js";
 
 export const startJobEventListener = async () => {
   const client = await pool.connect();

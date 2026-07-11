@@ -79,22 +79,32 @@ flowchart LR
 
 ```
 Job-Queue/
+├── .env.example
 ├── src/
 │   ├── api/
-│   │   └── routes.js        # HTTP API routes
+│   │   ├── routes/
+│   │   │   └── job.routes.js    # HTTP API routes
+│   │   ├── services/
+│   │   │   └── job.services.js  # API-side DB access helpers
+│   │   ├── socket/
+│   │   │   └── socket.js        # WebSocket server + subscriptions
+│   │   ├── utils/
+│   │   │   └── listener.js      # LISTEN job_events bridge to WebSockets
+│   │   └── server.js            # API entry point
 │   │
 │   ├── db/
-│   │   ├── pool.js          # PostgreSQL pool & queries
-│   │   └── listener.js      # LISTEN job_events
+│   │   ├── db.js                # PostgreSQL pool
+│   │   ├── initDB.js            # Runs schema bootstrap
+│   │   └── schema.sql           # Database schema
 │   │
 │   ├── jobs/
-│   │   ├── jobRepo.js       # Job DB operations
-│   │   └── worker.js        # Worker execution loop
-│   │
-│   ├── socket/
-│   │   └── socket.js        # WebSocket server
-│   │
-│   └── index.js             # API entry point
+│   │   ├── handlers/
+│   │   │   ├── cleanup.js       # Cleanup job handler
+│   │   │   └── email.js         # Email job handler
+│   │   ├── executor.js          # Executes job handlers
+│   │   ├── jobRepo.js           # Worker-side DB operations
+│   │   ├── scheduler.js         # Worker scheduling helpers
+│   │   └── worker.js            # Worker process entry point
 │
 ├── package.json
 ├── package-lock.json
@@ -107,7 +117,7 @@ Job-Queue/
 
 ```sql
 CREATE TABLE jobs (
-  id SERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   type TEXT NOT NULL,
   payload JSONB,
   status TEXT NOT NULL,
@@ -169,8 +179,8 @@ FOR UPDATE SKIP LOCKED;
 **Worker**
 
 ```sql
-UPDATE jobs SET status = 'SUCCESSFUL' WHERE id = 42;
-NOTIFY job_events, '{"jobId":42}';
+UPDATE jobs SET status = 'SUCCESSFUL' WHERE id = 'f50e1c67-2da8-4289-b104-22dbdbf7c87a';
+NOTIFY job_events, '{"jobId":"f50e1c67-2da8-4289-b104-22dbdbf7c87a"}';
 ```
 
 **API**
@@ -195,7 +205,7 @@ On notification:
 ```json
 {
   "action": "subscribe",
-  "jobId": 42
+  "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a"
 }
 ```
 
@@ -204,7 +214,7 @@ On notification:
 ```json
 {
   "action": "unsubscribe",
-  "jobId": 42
+  "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a"
 }
 ```
 
@@ -212,7 +222,7 @@ On notification:
 
 ```json
 {
-  "jobId": 42,
+  "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
   "status": "SUCCESSFUL",
   "attempts": 1,
   "error": null
@@ -229,16 +239,55 @@ On notification:
 npm install
 ```
 
+### Set Up Environment Variables
+
+Create a local `.env` file by copying `.env.example`, then adjust the values for your machine.
+
+```bash
+copy .env.example .env
+```
+
+Example `.env` values:
+
+```env
+PGHOST=localhost
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=postgres
+PGDATABASE=jobqueue
+
+API_PORT=3000
+WS_PORT=8080
+```
+
 ### Start API + WebSocket Server
 
 ```bash
 npm run api
 ```
 
+### Start API + WebSocket Server (dev mode)
+
+```bash
+npm run api-dev
+```
+
 ### Start Worker (run multiple for concurrency)
 
 ```bash
 npm run worker
+```
+
+### Start Worker (dev mode)
+
+```bash
+npm run worker-dev
+```
+
+### Initialize Database Schema
+
+```bash
+npm run db:setup
 ```
 
 ---
@@ -258,7 +307,7 @@ npm run worker
 4. Subscribe:
 
    ```json
-   { "action": "subscribe", "jobId": 42 }
+  { "action": "subscribe", "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a" }
    ```
 
 5. Observe real‑time job updates

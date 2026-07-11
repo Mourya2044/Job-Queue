@@ -1,18 +1,5 @@
 import pool from "../db/db.js";
 
-export const createJob = async (type, payload) => {
-    try {
-        const result = await pool.query(`
-                INSERT INTO jobs(type, payload, status)
-                VALUES ($1, $2, 'PENDING')
-                RETURNING *;
-            `, [type, payload])
-        return result.rows[0] || null;
-    } catch (error) {
-        console.error(error);
-    }
-}
-
 export const claimJob = async () => {
   const client = await pool.connect();
 
@@ -105,8 +92,11 @@ export const markJobFailed = async (jobId, errormsg) => {
 }
 
 export const recoverAbandonedJobs = async () => {
+    const client = await pool.connect();
     try {
-        const result = await pool.query(`
+        await client.query("BEGIN");
+
+        const result = await client.query(`
                 UPDATE jobs
                 SET
                     status = 'PENDING',
@@ -116,16 +106,31 @@ export const recoverAbandonedJobs = async () => {
                   AND started_at < NOW() - INTERVAL '60 seconds'
                   AND attempts < max_attempts
                 RETURNING *
-            `)
+            `);
+
+        for (const job of result.rows) {
+            await client.query(
+                `NOTIFY job_events, '${JSON.stringify({ jobId: job.id })}'`
+            );
+        }
+
+        await client.query("COMMIT");
         return result.rows || [];
     } catch (error) {
+        await client.query("ROLLBACK");
         console.error("recoverAbandonedJobs error: ", error);
+        throw error;
+    } finally {
+        client.release();
     }
 }
 
 export const failAbandonedJobs = async () => {
+    const client = await pool.connect();
     try {
-        const result = await pool.query(`
+        await client.query("BEGIN");
+
+        const result = await client.query(`
                 UPDATE jobs
                 SET
                     status = 'FAILED',
@@ -134,59 +139,21 @@ export const failAbandonedJobs = async () => {
                   AND started_at < NOW() - INTERVAL '60 seconds'
                   AND attempts >= max_attempts
                 RETURNING *
-            `)
+            `);
+
+        for (const job of result.rows) {
+            await client.query(
+                `NOTIFY job_events, '${JSON.stringify({ jobId: job.id })}'`
+            );
+        }
+
+        await client.query("COMMIT");
         return result.rows || [];
     } catch (error) {
+        await client.query("ROLLBACK");
         console.error("failAbandonedJobs error: ", error);
-    }
-}
-
-export const getJobById = async (jobId) => {
-    try {
-        const result = await pool.query(`
-                SELECT *
-                FROM jobs
-                WHERE id = $1
-            `, [jobId]);
-        return result.rows[0] || null;
-    } catch (error) {
-        console.error("getJobById error: ", error);
-    }
-}
-
-export const getStatusById = async (jobId) => {
-    try {
-        const result = await pool.query(`
-                SELECT status
-                FROM jobs
-                WHERE id = $1
-            `, [jobId]);
-        return result.rows[0]?.status || null;
-    } catch (error) {
-        console.error("getStatusById error: ", error);
-    }
-};
-
-export const deleteJobById = async (jobId) => {
-    try {
-        const result = await pool.query(`
-            DELETE FROM jobs
-            WHERE id = $1
-            AND status != 'RUNNING'
-            RETURNING *
-        `, [jobId]);
-        if (result.rowCount !== 0) {
-            return { deleted: true, job: result.rows[0] }; // Job successfully deleted
-        }
-
-        const runningCheck = await getStatusById(jobId);
-        console.log("runningCheck: ", runningCheck);
-        if (runningCheck === 'RUNNING') {
-            return { deleted: false, message: "RUNNING" }; // Job is running, cannot delete
-        }
-
-        return { deleted: false, message: "NOT_FOUND" }; // Job does not exist
-    } catch (error) {
-        console.error("deleteJobById error: ", error);
+        throw error;
+    } finally {
+        client.release();
     }
 }

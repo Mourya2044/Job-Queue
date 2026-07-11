@@ -1,10 +1,11 @@
+import "dotenv/config";
 import express from "express";
-import router from "./routes/routes.js";
-import { startJobEventListener } from "./db/listener.js";
+import router from "./routes/job.routes.js";
+import { startJobEventListener } from "./utils/listener.js";
 import "./socket/socket.js";
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.API_PORT ?? 3000);
 
 app.use(express.json());
 app.use("/api", router);

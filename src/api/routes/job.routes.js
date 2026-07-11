@@ -1,7 +1,19 @@
 import { Router } from "express";
-import { createJob, deleteJobById, getJobById } from "../jobs/jobRepo.js";
+import { createJob, deleteJobById, getJobById } from "../services/job.services.js";
 
 const router = Router();
+
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const validateJobId = (req, res, next) => {
+    const { id } = req.params;
+
+    if (!UUID_V4_PATTERN.test(id)) {
+        return res.status(400).send({ message: "Invalid job id format" });
+    }
+
+    next();
+};
 
 router.post("/jobs", async (req, res) => {
     try {
@@ -14,7 +26,7 @@ router.post("/jobs", async (req, res) => {
     }
 });
 
-router.get("/jobs/:id", async (req, res) => {
+router.get("/jobs/:id", validateJobId, async (req, res) => {
     try {
         const job = await getJobById(req.params.id);
         if (job) {
@@ -28,7 +40,7 @@ router.get("/jobs/:id", async (req, res) => {
     }
 });
 
-router.get("/jobs/:id/status", async (req, res) => {
+router.get("/jobs/:id/status", validateJobId, async (req, res) => {
     try {
         const job = await getJobById(req.params.id);
         if (job) {
@@ -42,7 +54,7 @@ router.get("/jobs/:id/status", async (req, res) => {
     }
 });
 
-router.delete("/jobs/:id", async (req, res) => {
+router.delete("/jobs/:id", validateJobId, async (req, res) => {
     try {
         const result = await deleteJobById(req.params.id);
         if (result.deleted) {

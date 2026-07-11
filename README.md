@@ -379,15 +379,17 @@ The **Recovery Scheduler** (`src/jobs/scheduler.js`) is a standalone process des
 
 ## 🚀 Running the Project
 
-### Install Dependencies
+Follow these steps in order to set up and run the job queue system:
+
+### 1. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### Set Up Environment Variables
+### 2. Set Up Environment Variables
 
-Create a local `.env` file by copying `.env.example`, then adjust the values for your machine.
+Create a local `.env` file by copying `.env.example`, then adjust the database credentials and ports.
 
 ```bash
 copy .env.example .env
@@ -406,46 +408,43 @@ API_PORT=3000
 WS_PORT=8080
 ```
 
-### Start API + WebSocket Server
+### 3. Initialize Database Schema
 
-```bash
-npm run api
-```
-
-### Start API + WebSocket Server (dev mode)
-
-```bash
-npm run api-dev
-```
-
-### Start Worker (run multiple for concurrency)
-
-```bash
-npm run worker
-```
-
-### Start Worker (dev mode)
-
-```bash
-npm run worker-dev
-```
-
-### Start Recovery Scheduler (recovers/fails abandoned jobs)
-
-```bash
-npm run scheduler
-```
-
-### Start Recovery Scheduler (dev mode)
-
-```bash
-npm run scheduler-dev
-```
-
-### Initialize Database Schema
+Make sure your PostgreSQL database exists, then run:
 
 ```bash
 npm run db:setup
+```
+
+### 4. Start the Processes
+
+To run the complete system, you must start the following three processes (preferably in separate terminal windows):
+
+#### A. Start API + WebSocket Server
+```bash
+# Production mode
+npm run api
+
+# Development (watch) mode
+npm run api-dev
+```
+
+#### B. Start Worker Process (can run multiple concurrently)
+```bash
+# Production mode
+npm run worker
+
+# Development (watch) mode
+npm run worker-dev
+```
+
+#### C. Start Recovery Scheduler (recovers or fails abandoned jobs)
+```bash
+# Production mode
+npm run scheduler
+
+# Development (watch) mode
+npm run scheduler-dev
 ```
 
 ---

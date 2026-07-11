@@ -367,6 +367,9 @@ All REST API endpoints are prefixed with `/api`.
 
 The **Recovery Scheduler** (`src/jobs/scheduler.js`) is a standalone process designed to handle job recovery and failure handling. It runs periodically (every 60 seconds) to ensure that the system recovers from crashed worker nodes.
 
+> [!IMPORTANT]
+> The recovery of abandoned/failed jobs is **not** handled automatically by the API server or worker processes. You **must start the scheduler process** using `npm run scheduler` (or `npm run scheduler-dev`) in order to recover and fail abandoned jobs.
+
 ### How it works:
 1. **Identify Abandoned Jobs:** Any job with `RUNNING` status that started more than 60 seconds ago (`started_at < NOW() - INTERVAL '60 seconds'`) is considered abandoned.
 2. **Re-queue Eligible Jobs:** If an abandoned job has `attempts < max_attempts`, the scheduler resets its status to `PENDING`, clears `started_at`, increments `attempts`, and notifies listeners via `job_events`.

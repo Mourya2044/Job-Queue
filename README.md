@@ -103,7 +103,7 @@ Job-Queue/
 │   │   │   └── email.js         # Email job handler
 │   │   ├── executor.js          # Executes job handlers
 │   │   ├── jobRepo.js           # Worker-side DB operations
-│   │   ├── scheduler.js         # Worker scheduling helpers
+│   │   ├── scheduler.js         # Standalone recovery scheduler process
 │   │   └── worker.js            # Worker process entry point
 │
 ├── package.json
@@ -231,6 +231,142 @@ On notification:
 
 ---
 
+## 🛰 REST API Reference
+
+All REST API endpoints are prefixed with `/api`.
+
+### 1. Create a Job
+* **Method & Path:** `POST /api/jobs`
+* **Content-Type:** `application/json`
+* **Request Body:**
+  ```json
+  {
+    "type": "email",
+    "payload": {
+      "to": "user@example.com",
+      "subject": "Welcome!",
+      "body": "Thank you for signing up."
+    }
+  }
+  ```
+* **Response (201 Created):**
+  ```json
+  {
+    "id": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
+    "type": "email",
+    "payload": {
+      "to": "user@example.com",
+      "subject": "Welcome!",
+      "body": "Thank you for signing up."
+    },
+    "status": "PENDING",
+    "attempts": 0,
+    "max_attempts": 3,
+    "error": null,
+    "created_at": "2026-07-12T02:13:09.000Z",
+    "started_at": null,
+    "finished_at": null
+  }
+  ```
+
+### 2. Get Job Details
+* **Method & Path:** `GET /api/jobs/:id`
+* **URL Params:** `id` (valid UUID v4)
+* **Response (200 OK):**
+  ```json
+  {
+    "id": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
+    "type": "email",
+    "payload": {
+      "to": "user@example.com",
+      "subject": "Welcome!",
+      "body": "Thank you for signing up."
+    },
+    "status": "SUCCESSFUL",
+    "attempts": 1,
+    "max_attempts": 3,
+    "error": null,
+    "created_at": "2026-07-12T02:13:09.000Z",
+    "started_at": "2026-07-12T02:13:10.000Z",
+    "finished_at": "2026-07-12T02:13:20.000Z"
+  }
+  ```
+* **Response (404 Not Found):**
+  ```json
+  {
+    "message": "Job not found"
+  }
+  ```
+* **Response (400 Bad Request - Invalid ID format):**
+  ```json
+  {
+    "message": "Invalid job id format"
+  }
+  ```
+
+### 3. Get Job Status Only
+* **Method & Path:** `GET /api/jobs/:id/status`
+* **URL Params:** `id` (valid UUID v4)
+* **Response (200 OK):**
+  ```json
+  {
+    "status": "RUNNING"
+  }
+  ```
+* **Response (404/400):** Same as Get Job Details.
+
+### 4. Delete a Job
+* **Method & Path:** `DELETE /api/jobs/:id`
+* **URL Params:** `id` (valid UUID v4)
+* **Description:** Deletes a job by ID from the queue. Only allowed if the job status is NOT `RUNNING`.
+* **Response (200 OK - Success):**
+  ```json
+  {
+    "message": "Job deleted",
+    "job": {
+      "id": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
+      "type": "email",
+      "payload": {
+        "to": "user@example.com",
+        "subject": "Welcome!",
+        "body": "Thank you for signing up."
+      },
+      "status": "FAILED",
+      "attempts": 3,
+      "max_attempts": 3,
+      "error": "Random Job Failure",
+      "created_at": "2026-07-12T02:13:09.000Z",
+      "started_at": "2026-07-12T02:13:10.000Z",
+      "finished_at": "2026-07-12T02:13:20.000Z"
+    }
+  }
+  ```
+* **Response (400 Bad Request - Job is currently running):**
+  ```json
+  {
+    "message": "Cannot delete a RUNNING job"
+  }
+  ```
+* **Response (404 Not Found):**
+  ```json
+  {
+    "message": "Job not found"
+  }
+  ```
+
+---
+
+## 🔄 Recovery & Scheduler Process
+
+The **Recovery Scheduler** (`src/jobs/scheduler.js`) is a standalone process designed to handle job recovery and failure handling. It runs periodically (every 60 seconds) to ensure that the system recovers from crashed worker nodes.
+
+### How it works:
+1. **Identify Abandoned Jobs:** Any job with `RUNNING` status that started more than 60 seconds ago (`started_at < NOW() - INTERVAL '60 seconds'`) is considered abandoned.
+2. **Re-queue Eligible Jobs:** If an abandoned job has `attempts < max_attempts`, the scheduler resets its status to `PENDING`, clears `started_at`, increments `attempts`, and notifies listeners via `job_events`.
+3. **Fail Exceeded Jobs:** If an abandoned job has reached or exceeded its `max_attempts` (`attempts >= max_attempts`), the scheduler sets its status to `FAILED`, updates `finished_at`, and notifies listeners via `job_events`.
+
+---
+
 ## 🚀 Running the Project
 
 ### Install Dependencies
@@ -282,6 +418,18 @@ npm run worker
 
 ```bash
 npm run worker-dev
+```
+
+### Start Recovery Scheduler (recovers/fails abandoned jobs)
+
+```bash
+npm run scheduler
+```
+
+### Start Recovery Scheduler (dev mode)
+
+```bash
+npm run scheduler-dev
 ```
 
 ### Initialize Database Schema

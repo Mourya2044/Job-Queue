@@ -9,6 +9,7 @@ const subscribers = new Map();
 
 wss.on("connection", (ws) => {
     console.log("New client connected");
+    ws.jobIds = new Set();
 
     ws.on("message", (message) => {
         let data;
@@ -21,21 +22,24 @@ wss.on("connection", (ws) => {
         }
 
         if (data.action === "subscribe" && data.jobId) {
-            const jobId = data.jobId;
-            if (!subscribers.has(jobId)) {
-                subscribers.set(jobId, new Set());
+            const jobId = String(data.jobId);
+            if (!ws.jobIds.has(jobId)) {
+                ws.jobIds.add(jobId);
+                if (!subscribers.has(jobId)) {
+                    subscribers.set(jobId, new Set());
+                }
+                subscribers.get(jobId).add(ws);
             }
-
-            subscribers.get(jobId).add(ws);
-            ws.jobId = jobId;
 
             ws.send(JSON.stringify({ message: `Subscribed to job ${jobId}` }));
             console.log(`Client subscribed to job ${jobId}`);
+            return;
         }
 
-        if (data.action === "unsubscribe") {
+        if (data.action === "unsubscribe" && data.jobId) {
             const jobId = String(data.jobId);
 
+            ws.jobIds.delete(jobId);
             if (subscribers.has(jobId)) {
                 subscribers.get(jobId).delete(ws);
 
@@ -44,22 +48,25 @@ wss.on("connection", (ws) => {
                 }
             }
 
-            ws.jobId = null;
-
             ws.send(JSON.stringify({
                 message: `Unsubscribed from job ${jobId}`
             }));
-
+            console.log(`Client unsubscribed from job ${jobId}`);
             return;
         }
     });
 
     ws.on("close", () => {
-        if (ws.jobId && subscribers.has(ws.jobId)) {
-            subscribers.get(ws.jobId).delete(ws);
-            if (subscribers.get(ws.jobId).size === 0) {
-                subscribers.delete(ws.jobId);
+        if (ws.jobIds) {
+            for (const jobId of ws.jobIds) {
+                if (subscribers.has(jobId)) {
+                    subscribers.get(jobId).delete(ws);
+                    if (subscribers.get(jobId).size === 0) {
+                        subscribers.delete(jobId);
+                    }
+                }
             }
+            ws.jobIds.clear();
         }
 
         console.log("Client disconnected");

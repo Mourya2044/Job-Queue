@@ -463,8 +463,8 @@ npm run scheduler-dev
 
 4. Subscribe:
 
-   ```json
-  { "action": "subscribe", "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a" }
+   ```  
+   { "action": "subscribe", "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a" }
    ```
 
 5. Observe real‑time job updates

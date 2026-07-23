@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { createJob, deleteJobById, getJobById } from "../services/job.services.js";
+import { subscribeToJob, unsubscribeFromJob } from "../utils/listener.js";
 
 const router = Router();
 
@@ -17,8 +18,8 @@ const validateJobId = (req, res, next) => {
 
 router.post("/jobs", async (req, res) => {
     try {
-        const { type, payload } = req.body;
-        const job = await createJob(type, payload);
+        const { plugin, payload } = req.body;
+        const job = await createJob(plugin, payload);
         res.status(201).send(job);
     } catch (error) {
         console.error("Error creating job:", error);
@@ -51,6 +52,36 @@ router.get("/jobs/:id/status", validateJobId, async (req, res) => {
     } catch (error) {
         console.error("Error retrieving job status:", error);
         res.status(500).send({ message: "Error retrieving job status" });
+    }
+});
+
+router.get("/jobs/:id/subscribe", validateJobId, async (req, res) => {
+    try {
+        const job = await getJobById(req.params.id);
+        if (!job) {
+            return res.status(404).send({ message: "Job not found" });
+        }
+
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        console.log(`Client subscribed to job ${req.params.id} events`);
+
+        res.write(`data: ${JSON.stringify({ jobId: job.id, status: job.status, attempts: job.attempts, error: job.error })}\n\n`);
+
+        if (job.status == "SUCCESSFUL" || job.status == "FAILED") {
+            res.end();
+            return;
+        }
+        subscribeToJob(res, req.params.id);
+
+        req.on("close", () => {
+            unsubscribeFromJob(req.params.id);
+            console.log("Cleanup: Client disconnected");
+        });
+    } catch (error) {
+        console.error("Error subscribing to job events:", error);
+        res.status(500).send({ message: "Error subscribing to job events" });
     }
 });
 

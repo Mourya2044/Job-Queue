@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { recoverAbandonedJobs, failAbandonedJobs } from "./jobRepo.js";
 
 async function runRecovery() {

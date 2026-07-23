@@ -7,10 +7,10 @@ const pool = new Pool({
     password: process.env.PGPASSWORD ?? 'postgres',
     database: process.env.PGDATABASE ?? 'jobqueue',
     port: process.env.PGPORT ? Number(process.env.PGPORT) : 5432,
+    ssl: process.env.PGSSLMODE ? { rejectUnauthorized: false } : false,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-    maxLifetimeSeconds: 60
+    connectionTimeoutMillis: 5000,
 })
 
 export default pool;

@@ -1,40 +1,51 @@
 # Job Queue System
 
-**PostgreSQL · Node.js · Workers · WebSockets · Scheduler**
+**PostgreSQL · Prisma ORM · Node.js · Extensible Plugins · Workers · SSE · Scheduler**
 
-A production‑style **job queue system** built with Node.js and PostgreSQL, supporting concurrent workers, failure recovery, and real‑time job status updates using **PostgreSQL `LISTEN / NOTIFY` + WebSockets**.
-
-This project emphasizes **correctness under concurrency**, **process isolation**, and **event‑driven architecture**.
+A production-grade **job queue & execution system** built with Node.js, PostgreSQL, and Prisma ORM. Designed with process isolation, safe database concurrency (`FOR UPDATE SKIP LOCKED`), and real-time job status streaming via **PostgreSQL `LISTEN / NOTIFY`** and **Server-Sent Events (SSE)**.
 
 ---
 
 ## ✨ Features
 
-* Persistent job queue backed by PostgreSQL
-* Safe concurrent job claiming (`FOR UPDATE SKIP LOCKED`)
-* Multiple worker processes supported
-* Automatic recovery of abandoned jobs via a standalone scheduler
-* Real‑time job status updates via WebSockets
-* Event signaling using PostgreSQL `LISTEN / NOTIFY`
-* No polling, no shared memory, no race conditions
+* **Prisma ORM Integration**: Managed schema definitions, migrations (`prisma db push`), and database pooling.
+* **Extensible Plugin Engine**: Modular job execution powered by dynamically loaded plugins.
+* **Safe Concurrent Job Claiming**: Prevents race conditions using row-level locking (`FOR UPDATE SKIP LOCKED`).
+* **Multi-Process Architecture**: Decoupled API server, Worker processes, and Recovery Scheduler.
+* **Real-Time Job Status Streaming**: Live updates using **Server-Sent Events (SSE)** (`GET /api/jobs/:id/subscribe`).
+* **PostgreSQL `LISTEN / NOTIFY` Signaling**: Database-native event bus ensures zero polling overhead.
+* **Automatic Failure & Abandoned Job Recovery**: Periodic scheduler process re-queues or fails stale running jobs.
+
+---
+
+## 🔌 Plugin Architecture & Vision
+
+The core job queue relies on a plugin-based execution model where each job targets a specific plugin name and passes custom input payloads.
+
+### Current Implementation
+* Plugins reside in the `plugins/` directory.
+* The worker dynamically loads the specified plugin module at runtime (via `loadPlugin`) and invokes its `execute({ job })` interface.
+
+### Future Plugin System Roadmap
+* **Zero Default Plugins**: The core job queue repo will ship completely lean without built-in default plugins.
+* **External Repositories & Executables**: Plugins will exist as separate Git repositories or standalone executable packages.
+* **Plugin Manager & Git Installation**: A future plugin management CLI/module will allow developers to install, update, and manage third-party or custom plugins directly from Git repositories or external binary releases.
 
 ---
 
 ## 🏗 Architecture Overview
 
-### High-Level Architecture (Event-Driven)
-
 ```mermaid
 flowchart LR
-    Client["Client<br/>(Browser / Postman)"]
+    Client["Client<br/>(Browser / CLI / Postman)"]
 
-    subgraph API["API + WebSocket Server"]
+    subgraph API["API Server & Real-Time Hub"]
         HTTP["REST API"]
-        WS["WebSocket Hub"]
-        LISTENER["PG Listener<br/>LISTEN job_events"]
+        SSE["SSE Streamer<br/>(Server-Sent Events)"]
+        LISTENER["PG Event Listener<br/>LISTEN job_events"]
     end
 
-    subgraph DB["PostgreSQL"]
+    subgraph DB["PostgreSQL (Prisma ORM)"]
         JOBS[("jobs table")]
         NOTIFY[("NOTIFY bus")]
     end
@@ -42,25 +53,22 @@ flowchart LR
     subgraph WORKERS["Worker Processes"]
         W1["Worker 1"]
         W2["Worker 2"]
-        WN["Worker N"]
+        PLUGINS["Plugin Manager<br/>(Dynamic Plugins)"]
     end
 
     subgraph SCHEDULER["Scheduler Process"]
         SCH["Recovery Scheduler"]
     end
 
-    Client -->|HTTP| HTTP
-    WS -->|events| Client
+    Client -->|HTTP / POST / GET| HTTP
+    Client -->|SSE Event Stream| SSE
 
-    HTTP -->|INSERT / UPDATE| JOBS
+    HTTP -->|Prisma / Pool| JOBS
 
     W1 -->|FOR UPDATE SKIP LOCKED| JOBS
     W2 -->|FOR UPDATE SKIP LOCKED| JOBS
-    WN -->|FOR UPDATE SKIP LOCKED| JOBS
-
-    W1 -->|UPDATE status| JOBS
-    W2 -->|UPDATE status| JOBS
-    WN -->|UPDATE status| JOBS
+    W1 <--> PLUGINS
+    W2 <--> PLUGINS
 
     SCH -->|recover / fail abandoned jobs| JOBS
 
@@ -68,17 +76,8 @@ flowchart LR
     NOTIFY --> LISTENER
 
     LISTENER -->|fetch state| JOBS
-    LISTENER -->|emit update| WS
+    LISTENER -->|push SSE data| SSE
 ```
-
-### Data & Control Flow Summary
-
-1. **Clients** create jobs via HTTP and subscribe via WebSockets.
-2. **Workers** concurrently claim jobs using row-level locks.
-3. **Workers** update job state transactionally and emit `NOTIFY` signals.
-4. **API server** listens for database events, re-reads state, and broadcasts updates.
-5. **WebSockets** deliver real-time job status to subscribed clients.
-6. **Recovery Scheduler** periodically polls for abandoned running jobs and either re-queues them (reverting status to `PENDING`) or marks them as `FAILED`.
 
 ---
 
@@ -86,439 +85,175 @@ flowchart LR
 
 ```
 Job-Queue/
+├── .env
 ├── .env.example
+├── prisma/
+│   ├── schema.prisma        # Prisma database schema definition
+│   └── migrations/          # Prisma database migration files
+├── plugins/                 # Local plugin modules directory
 ├── src/
 │   ├── api/
 │   │   ├── routes/
-│   │   │   └── job.routes.js    # HTTP API routes
+│   │   │   └── job.routes.js    # Express REST API & SSE endpoints
 │   │   ├── services/
-│   │   │   └── job.services.js  # API-side DB access helpers
-│   │   ├── socket/
-│   │   │   └── socket.js        # WebSocket server + subscriptions
+│   │   │   └── job.services.js  # Job database service operations
 │   │   ├── utils/
-│   │   │   └── listener.js      # LISTEN job_events bridge to WebSockets
-│   │   └── server.js            # API entry point
+│   │   │   └── listener.js      # PG LISTEN job_events bridge to SSE
+│   │   └── server.js            # Express API server entry point
 │   │
 │   ├── db/
-│   │   ├── db.js                # PostgreSQL pool
-│   │   ├── initDB.js            # Runs schema bootstrap
-│   │   └── schema.sql           # Database schema
+│   │   └── db.js                # PostgreSQL connection pool (pg)
 │   │
 │   ├── jobs/
-│   │   ├── handlers/
-│   │   │   ├── cleanup.js       # Cleanup job handler
-│   │   │   └── email.js         # Email job handler
-│   │   ├── executor.js          # Executes job handlers
-│   │   ├── jobRepo.js           # Worker-side DB operations
-│   │   ├── scheduler.js         # Standalone recovery scheduler process
+│   │   ├── pluginManager/
+│   │   │   └── loadPlugin.js    # Dynamic plugin loader
+│   │   ├── executor.js          # Plugin execution orchestrator
+│   │   ├── jobRepo.js           # Worker DB queries & NOTIFY triggers
+│   │   ├── scheduler.js         # Recovery scheduler process
 │   │   └── worker.js            # Worker process entry point
 │
 ├── package.json
-├── package-lock.json
 └── README.md
 ```
 
 ---
 
-## 🗃 Database Schema
+## 🗃 Database Schema (Prisma)
 
-```sql
-CREATE TABLE jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  type TEXT NOT NULL,
-  payload JSONB,
-  status TEXT NOT NULL,
-  attempts INT DEFAULT 0,
-  max_attempts INT DEFAULT 3,
-  error TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  started_at TIMESTAMP,
-  finished_at TIMESTAMP
-);
+Managed via `prisma/schema.prisma`:
+
+```prisma
+model jobs {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plugin       String
+  payload      Json?
+  status       String
+  result       Json?
+  attempts     Int?      @default(0)
+  max_attempts Int?      @default(3)
+  error        String?
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  started_at   DateTime? @db.Timestamp(6)
+  finished_at  DateTime? @db.Timestamp(6)
+}
 ```
 
 ---
 
 ## 🔁 Job Lifecycle
 
-* **PENDING** – job created
-* **RUNNING** – claimed by a worker
-* **SUCCESSFUL** – completed successfully
-* **FAILED** – failed (retryable)
-* **RETRY** – re‑queued if `attempts < max_attempts`
-
-All state transitions occur **inside database transactions**.
-
----
-
-## 🔒 Concurrency & Correctness
-
-### Safe Job Claiming
-
-```sql
-SELECT id
-FROM jobs
-WHERE status = 'PENDING'
-ORDER BY created_at
-LIMIT 1
-FOR UPDATE SKIP LOCKED;
-```
-
-**Guarantees**
-
-* No two workers can claim the same job
-* Safe parallel worker execution
-* No race conditions
-
----
-
-## 🔔 Real‑Time Updates (LISTEN / NOTIFY)
-
-### Why LISTEN / NOTIFY?
-
-* No polling
-* No shared memory
-* Transaction‑aware
-* Database‑native signaling
-
-### Event Flow
-
-**Worker**
-
-```sql
-UPDATE jobs SET status = 'SUCCESSFUL' WHERE id = 'f50e1c67-2da8-4289-b104-22dbdbf7c87a';
-NOTIFY job_events, '{"jobId":"f50e1c67-2da8-4289-b104-22dbdbf7c87a"}';
-```
-
-**API**
-
-```sql
-LISTEN job_events;
-```
-
-On notification:
-
-1. Fetch job state from the database
-2. Emit WebSocket update
-
-> Notifications carry **identity (jobId)**, not state. State is always re‑read from the database.
-
----
-
-## 🔌 WebSocket Protocol
-
-### Subscribe
-
-```json
-{
-  "action": "subscribe",
-  "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a"
-}
-```
-
-### Unsubscribe
-
-```json
-{
-  "action": "unsubscribe",
-  "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a"
-}
-```
-
-### Server → Client Event
-
-```json
-{
-  "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
-  "status": "SUCCESSFUL",
-  "attempts": 1,
-  "error": null
-}
-```
+* **`PENDING`**: Job created via API, awaiting worker claim.
+* **`RUNNING`**: Safely claimed by a worker using `FOR UPDATE SKIP LOCKED`.
+* **`SUCCESSFUL`**: Plugin executed successfully and stored result.
+* **`FAILED`**: Job execution failed or reached max retry attempts.
 
 ---
 
 ## 🛰 REST API Reference
 
-All REST API endpoints are prefixed with `/api`.
+Base Path: `/api`
 
 ### 1. Create a Job
-* **Method & Path:** `POST /api/jobs`
-* **Content-Type:** `application/json`
+* **POST** `/api/jobs`
+* **Headers:** `Content-Type: application/json`
 * **Request Body:**
   ```json
   {
-    "type": "email",
+    "plugin": "example-plugin",
     "payload": {
-      "to": "user@example.com",
-      "subject": "Welcome!",
-      "body": "Thank you for signing up."
+      "key": "value"
     }
   }
   ```
 * **Response (201 Created):**
   ```json
   {
-    "id": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
-    "type": "email",
-    "payload": {
-      "to": "user@example.com",
-      "subject": "Welcome!",
-      "body": "Thank you for signing up."
-    },
+    "id": "88222c15-9e3e-40ab-89c6-77305295d36d",
+    "plugin": "example-plugin",
+    "payload": { "key": "value" },
     "status": "PENDING",
     "attempts": 0,
     "max_attempts": 3,
-    "error": null,
-    "created_at": "2026-07-12T02:13:09.000Z",
-    "started_at": null,
-    "finished_at": null
+    "created_at": "2026-07-24T01:30:00.000Z"
   }
   ```
 
-### 2. Get Job Details
-* **Method & Path:** `GET /api/jobs/:id`
-* **URL Params:** `id` (valid UUID v4)
-* **Response (200 OK):**
-  ```json
-  {
-    "id": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
-    "type": "email",
-    "payload": {
-      "to": "user@example.com",
-      "subject": "Welcome!",
-      "body": "Thank you for signing up."
-    },
-    "status": "SUCCESSFUL",
-    "attempts": 1,
-    "max_attempts": 3,
-    "error": null,
-    "created_at": "2026-07-12T02:13:09.000Z",
-    "started_at": "2026-07-12T02:13:10.000Z",
-    "finished_at": "2026-07-12T02:13:20.000Z"
-  }
-  ```
-* **Response (404 Not Found):**
-  ```json
-  {
-    "message": "Job not found"
-  }
-  ```
-* **Response (400 Bad Request - Invalid ID format):**
-  ```json
-  {
-    "message": "Invalid job id format"
-  }
+### 2. Stream Job Status (Server-Sent Events)
+* **GET** `/api/jobs/:id/subscribe`
+* **Headers:** `Accept: text/event-stream`
+* **Behavior:** Establishes an SSE connection streaming real-time status updates as the job transitions (`PENDING` -> `RUNNING` -> `SUCCESSFUL`/`FAILED`). The connection automatically closes upon completion.
+* **Sample Stream Output:**
+  ```http
+  data: {"jobId":"88222c15-9e3e-40ab-89c6-77305295d36d","status":"RUNNING","attempts":1,"error":null}
+
+  data: {"jobId":"88222c15-9e3e-40ab-89c6-77305295d36d","status":"SUCCESSFUL","attempts":1,"error":null}
   ```
 
-### 3. Get Job Status Only
-* **Method & Path:** `GET /api/jobs/:id/status`
-* **URL Params:** `id` (valid UUID v4)
-* **Response (200 OK):**
-  ```json
-  {
-    "status": "RUNNING"
-  }
-  ```
-* **Response (404/400):** Same as Get Job Details.
+### 3. Get Job Details
+* **GET** `/api/jobs/:id`
 
-### 4. Delete a Job
-* **Method & Path:** `DELETE /api/jobs/:id`
-* **URL Params:** `id` (valid UUID v4)
-* **Description:** Deletes a job by ID from the queue. Only allowed if the job status is NOT `RUNNING`.
-* **Response (200 OK - Success):**
-  ```json
-  {
-    "message": "Job deleted",
-    "job": {
-      "id": "f50e1c67-2da8-4289-b104-22dbdbf7c87a",
-      "type": "email",
-      "payload": {
-        "to": "user@example.com",
-        "subject": "Welcome!",
-        "body": "Thank you for signing up."
-      },
-      "status": "FAILED",
-      "attempts": 3,
-      "max_attempts": 3,
-      "error": "Random Job Failure",
-      "created_at": "2026-07-12T02:13:09.000Z",
-      "started_at": "2026-07-12T02:13:10.000Z",
-      "finished_at": "2026-07-12T02:13:20.000Z"
-    }
-  }
-  ```
-* **Response (400 Bad Request - Job is currently running):**
-  ```json
-  {
-    "message": "Cannot delete a RUNNING job"
-  }
-  ```
-* **Response (404 Not Found):**
-  ```json
-  {
-    "message": "Job not found"
-  }
-  ```
+### 4. Get Job Status Only
+* **GET** `/api/jobs/:id/status`
+
+### 5. Delete Job
+* **DELETE** `/api/jobs/:id` *(Not allowed if job status is `RUNNING`)*
 
 ---
 
-## 🔄 Recovery & Scheduler Process
+## 🔄 Recovery Scheduler
 
-The **Recovery Scheduler** (`src/jobs/scheduler.js`) is a standalone process designed to handle job recovery and failure handling. It runs periodically (every 60 seconds) to ensure that the system recovers from crashed worker nodes.
-
-> [!IMPORTANT]
-> The recovery of abandoned/failed jobs is **not** handled automatically by the API server or worker processes. You **must start the scheduler process** using `npm run scheduler` (or `npm run scheduler-dev`) in order to recover and fail abandoned jobs.
-
-### How it works:
-1. **Identify Abandoned Jobs:** Any job with `RUNNING` status that started more than 60 seconds ago (`started_at < NOW() - INTERVAL '60 seconds'`) is considered abandoned.
-2. **Re-queue Eligible Jobs:** If an abandoned job has `attempts < max_attempts`, the scheduler resets its status to `PENDING`, clears `started_at`, increments `attempts`, and notifies listeners via `job_events`.
-3. **Fail Exceeded Jobs:** If an abandoned job has reached or exceeded its `max_attempts` (`attempts >= max_attempts`), the scheduler sets its status to `FAILED`, updates `finished_at`, and notifies listeners via `job_events`.
+The **Recovery Scheduler** (`npm run scheduler-dev`) runs every 60 seconds to clean up abandoned running jobs (e.g. from crashed worker nodes):
+* **Re-queues (`PENDING`)** jobs with `attempts < max_attempts` that have been running for over 60 seconds.
+* **Fails (`FAILED`)** jobs exceeding `max_attempts`.
 
 ---
 
-## 🚀 Running the Project
-
-Follow these steps in order to set up and run the job queue system:
+## 🚀 Getting Started
 
 ### 1. Install Dependencies
-
 ```bash
 npm install
 ```
 
-### 2. Set Up Environment Variables
-
-Create a local `.env` file by copying `.env.example`, then adjust the database credentials and ports.
-
-```bash
-copy .env.example .env
-```
-
-Example `.env` values:
-
+### 2. Configure Environment Variables
+Copy `.env.example` to `.env` and set your PostgreSQL credentials:
 ```env
 PGHOST=localhost
-PGPORT=5432
 PGUSER=postgres
 PGPASSWORD=postgres
 PGDATABASE=jobqueue
+PGPORT=5432
+PGSSLMODE=require
 
 API_PORT=3000
-WS_PORT=8080
 ```
 
-### 3. Initialize Database Schema
-
-Make sure your PostgreSQL database exists, then run:
-
+### 3. Database Setup (Prisma)
+Push schema definition to your PostgreSQL instance:
 ```bash
 npm run db:setup
 ```
 
-### 4. Start the Processes
+### 4. Run the System
 
-To run the complete system, you must start the following three processes (preferably in separate terminal windows):
+Start the services (in separate terminal windows):
 
-#### A. Start API + WebSocket Server
 ```bash
-# Production mode
-npm run api
-
-# Development (watch) mode
+# Start API & SSE Stream Server
 npm run api-dev
-```
 
-#### B. Start Worker Process (can run multiple concurrently)
-```bash
-# Production mode
-npm run worker
-
-# Development (watch) mode
+# Start Worker Process (run multiple instances for concurrency)
 npm run worker-dev
-```
 
-#### C. Start Recovery Scheduler (recovers or fails abandoned jobs)
-```bash
-# Production mode
-npm run scheduler
-
-# Development (watch) mode
+# Start Recovery Scheduler
 npm run scheduler-dev
 ```
 
 ---
 
-## 🧪 Testing with Postman
+## 📈 Future Roadmap
 
-1. `POST /api/jobs` → create a job
-
-2. Save `jobId` from response
-
-3. Open WebSocket connection:
-
-   ```
-   ws://localhost:8080
-   ```
-
-4. Subscribe:
-
-   ``` json
-   { "action": "subscribe", "jobId": "f50e1c67-2da8-4289-b104-22dbdbf7c87a" }
-   ```
-
-5. Observe real‑time job updates
-
----
-
-## ❌ Why Not Polling or Webhooks?
-
-### Polling
-
-* Missed updates
-* Duplicate updates
-* Database overhead
-* State diffing complexity
-
-### Webhooks
-
-* Tight coupling
-* Retry & idempotency complexity
-* Additional failure modes
-
-### Chosen Approach
-
-**Database‑driven signaling with best‑effort notifications**
-
-> Correctness lives in the database, not the transport.
-
----
-
-## 📌 Design Principles
-
-* One process = one responsibility
-* Database is the single source of truth
-* Workers never talk to WebSockets
-* Notifications are signals, not data
-* Failures never corrupt state
-
----
-
-## 📈 Future Improvements
-
-* Redis / Kafka fan‑out
-* Job priorities
-* Delayed jobs
-* Dead‑letter queue
-* Authenticated WebSocket subscriptions
-* Horizontal scaling
-
----
-
-## 🧠 Key Takeaway
-
-**Transactions guarantee correctness.**
-**NOTIFY guarantees responsiveness.**
-**WebSockets guarantee user experience.**
-
-This system is designed to fail safely, scale cleanly, and remain debuggable.
+* **Plugin Package Manager**: Install and update plugins directly from remote Git repositories or CLI commands.
+* **External Binary Executable Plugins**: Support plugins built as standalone binaries in any language (Go, Rust, Python, etc.).
+* **Job Priorities & Delay Scheduling**: Priority-weighted queues and delayed job execution.
+* **Dead-Letter Queue (DLQ)**: Dedicated inspection and retry handling for failed jobs.

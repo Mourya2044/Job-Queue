@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model jobs {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plugin       String
+  payload      Json?
+  status       String
+  result       Json?
+  attempts     Int?      @default(0)
+  max_attempts Int?      @default(3)
+  error        String?
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  started_at   DateTime? @db.Timestamp(6)
+  finished_at  DateTime? @db.Timestamp(6)
+}

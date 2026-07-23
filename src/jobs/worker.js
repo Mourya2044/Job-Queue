@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { claimJob } from "./jobRepo.js";
 import { execute } from "./executor.js";
 

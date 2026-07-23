@@ -2,14 +2,20 @@ import pool from "../../db/db.js";
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const createJob = async (type, payload) => {
+export const createJob = async (plugin, payload) => {
     try {
         const result = await pool.query(`
-                INSERT INTO jobs(type, payload, status)
+                INSERT INTO jobs(plugin, payload, status)
                 VALUES ($1, $2, 'PENDING')
                 RETURNING *;
-            `, [type, payload])
-        return result.rows[0] || null;
+            `, [plugin, payload]);
+        const job = result.rows[0] || null;
+        if (job) {
+            await pool.query(
+                `NOTIFY job_events, '${JSON.stringify({ jobId: job.id })}'`
+            );
+        }
+        return job;
     } catch (error) {
         console.error(error);
     }

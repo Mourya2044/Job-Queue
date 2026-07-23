@@ -22,8 +22,16 @@ export const claimJob = async () => {
       RETURNING *;
     `);
 
+    const claimedJob = result.rows[0] || null;
+
+    if (claimedJob) {
+      await client.query(
+        `NOTIFY job_events, '${JSON.stringify({ jobId: claimedJob.id })}'`
+      );
+    }
+
     await client.query("COMMIT");
-    return result.rows[0] || null;
+    return claimedJob;
 
   } catch (error) {
     await client.query("ROLLBACK");
@@ -34,7 +42,7 @@ export const claimJob = async () => {
   }
 };
 
-export const markJobSuccess = async (jobId) => {
+export const markJobSuccess = async (jobId, jobresult) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
@@ -43,11 +51,12 @@ export const markJobSuccess = async (jobId) => {
                 SET
                     status = 'SUCCESSFUL',
                     attempts = attempts + 1,
+                    result = $2,
                     finished_at = NOW(),
                     error = NULL
                 WHERE id = $1
                 RETURNING *
-            `, [jobId]);
+            `, [jobId, jobresult]);
         await client.query(
             `NOTIFY job_events, '${JSON.stringify({ jobId })}'`
         );

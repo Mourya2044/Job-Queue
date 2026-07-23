@@ -10,19 +10,22 @@
     "api": "node src/api/server.js",
     "worker": "node src/jobs/worker.js",
     "scheduler": "node src/jobs/scheduler.js",
-    "db:setup": "node src/db/initDB.js"
+    "db:setup": "prisma db push"
   },
   "type": "module",
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@prisma/adapter-pg": "^7.9.0",
+    "@prisma/client": "^7.9.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "pg": "^8.16.3",
-    "ws": "^8.18.3"
+    "pg": "^8.22.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "@types/pg": "^8.20.0",
+    "nodemon": "^3.1.10",
+    "prisma": "^7.9.0"
   }
 }

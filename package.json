@@ -18,7 +18,7 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.0",
-    "@prisma/client": "^7.9.0",
+    "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "pg": "^8.22.0"
@@ -26,6 +26,14 @@
   "devDependencies": {
     "@types/pg": "^8.20.0",
     "nodemon": "^3.1.10",
-    "prisma": "^7.9.0"
+    "prisma": "^6.19.3"
+  },
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "workerd@1.20260704.1": true,
+    "msgpackr-extract@3.0.4": true
   }
 }

@@ -1,10 +1,11 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model jobs {
@@ -13,10 +14,17 @@ model jobs {
   payload      Json?
   status       String
   result       Json?
-  attempts     Int?      @default(0)
-  max_attempts Int?      @default(3)
+  attempts     Int       @default(0)
+  max_attempts Int       @default(3)
   error        String?
-  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  locked_by    String?   @db.Uuid
+  lease_expires_at  DateTime? @db.Timestamp(6)
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  available_at DateTime @default(now()) @db.Timestamp(6)
   started_at   DateTime? @db.Timestamp(6)
   finished_at  DateTime? @db.Timestamp(6)
+
+  @@index([status])
+  @@index([status, available_at])
+  @@index([status, lease_expires_at])
 }

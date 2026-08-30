@@ -1,0 +1,25 @@
+1. 
+Worker
+    │
+    ├── Pooled connection
+    │      Queries
+    │      Updates
+    │      Inserts
+    │
+    └── NOTIFY
+
+API
+    │
+    ├── Pooled connection
+    │      REST endpoints
+    │
+    └── Direct connection
+           LISTEN job_events
+                │
+                ▼
+               SSE
+2. Redis for storing jobid -> SSE mapping.
+3. Plugin Package Manager: Install and update plugins directly from remote Git repositories or CLI commands.
+4. External Binary Executable Plugins: Support plugins built as standalone binaries in any language (Go, Rust, Python, etc.).
+5. Job Priorities & Delay Scheduling: Priority-weighted queues and delayed job execution.
+6. Dead-Letter Queue (DLQ): Dedicated inspection and retry handling for failed jobs.
